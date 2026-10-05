@@ -1,0 +1,11 @@
+Hi, {name}:
+
+Favor confirmar su telefono{phone} y su email {email}. Le recordamos.
+Su teléfono de contacto registrado es {phone} y su email es {email}.
+
+Por favor confirme su asistencia respondiendo a este correo.
+
+Saludos,
+La Comisión
+
+para whatsapp , installar   pywhatkit 

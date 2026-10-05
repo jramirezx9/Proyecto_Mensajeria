@@ -1,0 +1,154 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox, scrolledtext
+import pandas as pd
+import webbrowser
+import urllib.parse
+import time
+import threading
+import re
+import os
+
+class MessageSenderApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Excel Message Sender (SMS & WhatsApp)")
+        self.root.geometry("650x500")
+        self.root.resizable(False, False)
+        
+        self.df = None
+        self.file_path = None
+
+        # --- GUI Layout ---
+        self.title_label = tk.Label(root, text="Excel Message Sender", font=("Arial", 16, "bold"))
+        self.title_label.pack(pady=10)
+
+        # File Selection
+        self.file_frame = tk.Frame(root)
+        self.file_frame.pack(pady=5)
+        self.file_label = tk.Label(self.file_frame, text="No file selected", fg="red")
+        self.file_label.pack(side=tk.LEFT, padx=5)
+        self.load_btn = tk.Button(self.file_frame, text="1. Load Excel File", command=self.load_file, bg="#4CAF50", fg="white")
+        self.load_btn.pack(side=tk.LEFT)
+
+        # Log Area
+        self.log_text = scrolledtext.ScrolledText(root, width=75, height=15, state=tk.DISABLED, font=("Consolas", 10))
+        self.log_text.pack(pady=10)
+
+        # Action Buttons
+        self.btn_frame = tk.Frame(root)
+        self.btn_frame.pack(pady=10)
+
+        self.sms_btn = tk.Button(self.btn_frame, text="2. Send Text Messages (SMS)", command=self.start_sms_thread, bg="#2196F3", fg="white", width=25, height=2, state=tk.DISABLED)
+        self.sms_btn.grid(row=0, column=0, padx=10)
+
+        self.wa_btn = tk.Button(self.btn_frame, text="3. Send WhatsApp Messages", command=self.start_wa_thread, bg="#25D366", fg="white", width=25, height=2, state=tk.DISABLED)
+        self.wa_btn.grid(row=0, column=1, padx=10)
+
+        self.exit_btn = tk.Button(self.btn_frame, text="Exit Program", command=self.exit_app, bg="#f44336", fg="white", width=25, height=2)
+        self.exit_btn.grid(row=1, column=0, columnspan=2, pady=10)
+
+    def log(self, message):
+        """Helper to write to the log box safely from threads"""
+        self.log_text.config(state=tk.NORMAL)
+        self.log_text.insert(tk.END, message + "\n")
+        self.log_text.see(tk.END)
+        self.log_text.config(state=tk.DISABLED)
+
+    def load_file(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx *.xls")])
+        if not file_path:
+            return
+
+        try:
+            # Read the Excel file
+            self.df = pd.read_excel(file_path)
+            
+            # Validate required columns
+            required_cols = {'name', 'phone', 'email', 'message', 'status'}
+            if not required_cols.issubset(set(col.lower() for col in self.df.columns)):
+                messagebox.showerror("Column Error", f"The Excel file must contain these exact columns:\n{', '.join(required_cols)}")
+                return
+
+            # Normalize column names to lowercase for easier processing
+            self.df.columns = [col.lower() for col in self.df.columns]
+            
+            self.file_path = file_path
+            self.file_label.config(text=f"Loaded: {os.path.basename(file_path)}", fg="green")
+            
+            # Enable buttons
+            self.sms_btn.config(state=tk.NORMAL)
+            self.wa_btn.config(state=tk.NORMAL)
+            
+            self.log(f"Successfully loaded {len(self.df)} rows from Excel.")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to read file:\n{str(e)}")
+
+    def clean_phone(self, phone):
+        """Removes all non-numeric characters for WhatsApp"""
+        return re.sub(r'\D', '', str(phone))
+
+    def send_sms_process(self):
+        """Handles the SMS sending logic"""
+        active_df = self.df[self.df['status'].str.lower() == 'active']
+        self.log(f"--- Starting SMS Process for {len(active_df)} Active contacts ---")
+        
+        for index, row in active_df.iterrows():
+            name = row['name']
+            phone = str(row['phone'])
+            message = str(row['message'])
+            
+            # URL encode the message
+            encoded_msg = urllib.parse.quote(message)
+            
+            # Open native SMS app (Works on Windows Phone Link, Mac Messages, iOS/Android)
+            sms_url = f"sms:{phone}?&body={encoded_msg}"
+            
+            self.log(f"Opening SMS for: {name} ({phone})")
+            webbrowser.open(sms_url)
+            time.sleep(1.5) # Pause to prevent browser/app overload
+            
+        self.log("--- SMS Process Complete! Please review and hit 'Send' in your messaging app. ---")
+        self.root.after(0, lambda: self.sms_btn.config(state=tk.NORMAL))
+
+    def send_whatsapp_process(self):
+        """Handles the WhatsApp sending logic"""
+        active_df = self.df[self.df['status'].str.lower() == 'active']
+        self.log(f"--- Starting WhatsApp Process for {len(active_df)} Active contacts ---")
+        
+        for index, row in active_df.iterrows():
+            name = row['name']
+            phone = self.clean_phone(row['phone'])
+            message = str(row['message'])
+            
+            # URL encode the message
+            encoded_msg = urllib.parse.quote(message)
+            
+            # WhatsApp Web URL scheme
+            wa_url = f"https://wa.me/{phone}?text={encoded_msg}"
+            
+            self.log(f"Opening WhatsApp for: {name} ({phone})")
+            webbrowser.open(wa_url)
+            
+            # Crucial: Wait 3 seconds so WhatsApp Web can load and your browser doesn't crash
+            time.sleep(3) 
+            
+        self.log("--- WhatsApp Process Complete! Please manually click 'Send' in each open tab. ---")
+        self.root.after(0, lambda: self.wa_btn.config(state=tk.NORMAL))
+
+    def start_sms_thread(self):
+        self.sms_btn.config(state=tk.DISABLED)
+        threading.Thread(target=self.send_sms_process, daemon=True).start()
+
+    def start_wa_thread(self):
+        self.wa_btn.config(state=tk.DISABLED)
+        threading.Thread(target=self.send_whatsapp_process, daemon=True).start()
+
+    def exit_app(self):
+        if messagebox.askyesno("Exit", "Are you sure you want to exit?"):
+            self.root.destroy()
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = MessageSenderApp(root)
+    root.mainloop()

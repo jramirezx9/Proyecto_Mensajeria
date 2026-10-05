@@ -1,0 +1,4 @@
+Hi, {name}:
+
+Favor confirmar su numero de telefono {phone} y su email :{email} Gracias.
+
